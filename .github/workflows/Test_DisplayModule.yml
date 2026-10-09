@@ -1,0 +1,26 @@
+name: DisplayModule Build Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup PlatformIO
+        run: |
+          pip install platformio
+
+      - name: Build firmware
+        working-directory: DisplayModule
+        run: pio run
+        
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: displaymodule-firmware
+          path: DisplayModule/.pio/build/**/firmware.bin
