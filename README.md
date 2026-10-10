@@ -20,6 +20,7 @@
 DashSentinel is a local-first driver monitoring prototype. It combines:
 
 - OpenCV / MediaPipe FaceMesh for facial landmarks and head-pose features
+- MediaPipe Tasks Face Landmarker fallback for newer MediaPipe releases
 - frame-quality checks for blurry, dark, overexposed, or low-contrast frames
 - visibility gates for eyes and mouth so hidden landmarks do not create false drowsiness events
 - multi-face selection so a passenger face does not automatically become the scored face
@@ -34,6 +35,8 @@ This project is a **warning system prototype**, not an authorized tool. See [`do
 - Driver attentiveness scoring (%)
 - Drowsiness / distraction signals based on:
   - eye closure patterns
+  - personalized left/right eye thresholds from startup calibration
+  - continuous bilateral eye closure duration (default 1.5 seconds)
   - yawning detection
   - head pose / looking away
   - optional local model output
@@ -84,6 +87,7 @@ No cloud inference is used. For model setup, see [`docs/LOCAL_MODELS.md`](docs/L
 - push buttons (x2)
 - LEDs (red, yellow, green)
 - resistors (3x 330 ohms)
+- optional active buzzer and transistor driver stage (ESP8266 DROWSY alert)
 
 ## Project structure
 
@@ -125,6 +129,12 @@ pip install -r requirements.txt
 ```bash
 python3 run_dashsentinel.py --show-ui --draw-landmarks --refine-landmarks
 ```
+
+The camera window is resizable and preserves the video aspect ratio when resized or maximized.
+
+During startup, keep both eyes open and look toward the camera while the app gathers valid baseline samples. It derives separate left/right EAR thresholds when enough samples are available; otherwise it reports and uses the configured `--ear-threshold` fallback. By default, a visible, usable frame stream with both eyes continuously closed for 1.5 seconds requests a DROWSY state. Adjust the duration with `--sustained-closure-seconds`.
+
+The ESP8266 firmware uses D0/GPIO16 for an intermittent beep only while the received status is DROWSY. Use a compatible active buzzer and a correctly rated driver circuit; do not assume an ESP8266 GPIO can supply the buzzer current.
 
 ### UI + ESP8266 interface
 

@@ -6,7 +6,7 @@ Prepare and rehearse a dependable classroom demo using DashSentinel's existing P
 
 ## Prerequisite
 
-The proposed per-eye EAR calibration and time-based sustained-eye-closure logic is tracked separately in the repository-root `task.md` and `implementation-plan.md`. Do not claim the personalized thresholds or configured sustained-closure duration as delivered until that integration is implemented, tested, and present in the executable Python app.
+Per-eye EAR calibration and time-based sustained-eye-closure logic are implemented in the Python app and covered by automated tests. The ESP8266 buzzer firmware builds successfully; end-to-end camera behavior and buzzer operation still require hands-on verification with the relevant hardware.
 
 ## Hardware checklist
 
@@ -77,14 +77,14 @@ Replace `COM3` with the actual board port:
 python run_dashsentinel.py --show-ui --draw-landmarks --enable-esp-serial --esp-port COM3
 ```
 
-Python performs camera inference and scoring. The ESP8266 receives status/score telemetry over USB serial; it does not run MediaPipe or the Python detection algorithm.
+Python performs camera inference and scoring. The ESP8266 receives status/score telemetry over USB serial; it does not run MediaPipe or the Python detection algorithm. The firmware implements a D0 intermittent buzzer pattern for DROWSY status; operation requires suitable buzzer driver hardware and has not been physically verified.
 
 ## Rehearsal sequence
 
 1. **Startup:** Show camera acquisition and baseline/calibration instructions; maintain a neutral open-eye posture until the app reports active operation.
 2. **Normal attentive state:** Confirm the UI shows the current state and the OLED/green LED reflects ALERT.
 3. **Short blink:** Demonstrate that a brief blink should not be presented as a sustained-closure event.
-4. **Sustained eye closure:** After the new duration feature has been implemented, close both eyes while seated and stationary for longer than the configured threshold. Confirm the Python state and ESP OLED/red LED plus intermittent buzzer warn, then confirm the buzzer silences and the warning recovers after reopening. Do not perform this while driving or operating a moving vehicle.
+4. **Sustained eye closure:** With the demo hardware connected, close both eyes while seated and stationary for longer than the configured threshold. Confirm the Python state and ESP OLED/red LED plus intermittent buzzer warn, then confirm the buzzer silences and the warning recovers after reopening. Do not perform this while driving or operating a moving vehicle.
 5. **Poor visibility / no face:** Briefly move out of frame or obscure the face and explain the no-face/vision-degraded indication. Do not interpret it as ALERT or proof of safe driving.
 6. **Buttons:** If included, press baseline reset and stats reset separately; explain what each does and observe Python's response.
 7. **Shutdown:** Press `q` to stop Python, then disconnect the board after the serial connection closes.

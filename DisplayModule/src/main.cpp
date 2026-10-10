@@ -16,6 +16,7 @@
 #define redPin D5
 #define greenPin D6
 #define yellowPin D7
+#define buzzerPin D0
 
 // i2c address for ssd1306
 #define OLED_ADDR 0x3C
@@ -36,6 +37,12 @@ bool lastStatBtnState = HIGH;
 unsigned long lastBaselinePress = 0;
 unsigned long lastStatBtnPress = 0;
 const unsigned long debounceMs = 250;
+const unsigned long buzzerOnMs = 200;
+const unsigned long buzzerOffMs = 800;
+const size_t serialLineCapacity = 96;
+char serialLine[serialLineCapacity];
+size_t serialLineLength = 0;
+bool serialLineOverflow = false;
 
 // led state modes
 enum LedMode {
@@ -49,12 +56,19 @@ enum LedMode {
 LedMode ledMode = LED_OFF;
 unsigned long lastLedToggle = 0;
 bool ledOn = false;
+unsigned long lastBuzzerToggle = 0;
+bool buzzerOn = false;
 
 // turn all leds off
 void offLeds() {
   digitalWrite(redPin, LOW);
   digitalWrite(greenPin, LOW);
   digitalWrite(yellowPin, LOW);
+}
+
+void stopBuzzer() {
+  digitalWrite(buzzerPin, LOW);
+  buzzerOn = false;
 }
 
 // change led behavior based on current driver status
@@ -159,9 +173,18 @@ void parseLine(String line) {
     return;
   }
 
+  bool wasDrowsy = currentStatus == "DROWSY";
   currentStatus = line.substring(0, firstComma);
   attentiveness = line.substring(firstComma + 1, secondComma).toFloat();
   drowsyScore = line.substring(secondComma + 1).toFloat();
+
+  if (currentStatus == "DROWSY" && !wasDrowsy) {
+    buzzerOn = true;
+    digitalWrite(buzzerPin, HIGH);
+    lastBuzzerToggle = millis();
+  } else if (currentStatus != "DROWSY") {
+    stopBuzzer();
+  }
 
   if (currentStatus == "ALERT") {
     setLedMode(LED_ALERT);
@@ -178,8 +201,46 @@ void parseLine(String line) {
   else {
     setLedMode(LED_OFF);
   }
-
   drawDisplay();
+}
+
+void readSerialLines() {
+  while (Serial.available() > 0) {
+    int incoming = Serial.read();
+    if (incoming == '\r') {
+      continue;
+    }
+    if (incoming == '\n') {
+      if (!serialLineOverflow && serialLineLength > 0) {
+        serialLine[serialLineLength] = '\0';
+        parseLine(String(serialLine));
+      }
+      serialLineLength = 0;
+      serialLineOverflow = false;
+      continue;
+    }
+    if (serialLineLength < serialLineCapacity - 1) {
+      serialLine[serialLineLength++] = static_cast<char>(incoming);
+    } else {
+      serialLineLength = 0;
+      serialLineOverflow = true;
+    }
+  }
+}
+
+void updateBuzzer() {
+  if (currentStatus != "DROWSY") {
+    stopBuzzer();
+    return;
+  }
+
+  unsigned long now = millis();
+  unsigned long interval = buzzerOn ? buzzerOnMs : buzzerOffMs;
+  if (now - lastBuzzerToggle >= interval) {
+    buzzerOn = !buzzerOn;
+    digitalWrite(buzzerPin, buzzerOn ? HIGH : LOW);
+    lastBuzzerToggle = now;
+  }
 }
 
 // check button states and print to serial if pressed
@@ -210,8 +271,10 @@ void setup() {
   pinMode(redPin, OUTPUT);
   pinMode(greenPin, OUTPUT);
   pinMode(yellowPin, OUTPUT);
+  pinMode(buzzerPin, OUTPUT);
 
   offLeds();
+  stopBuzzer();
 
   Serial.begin(115200);
   Wire.begin();
@@ -234,10 +297,7 @@ void setup() {
 void loop() {
   checkButtons();
 
-  if (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    parseLine(line);
-  }
-
+  readSerialLines();
   updateLeds();
+  updateBuzzer();
 }

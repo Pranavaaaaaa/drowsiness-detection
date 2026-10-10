@@ -4,6 +4,8 @@ DashSentinel can now fuse landmark features with an optional local ONNX model. T
 
 No model is included in the repository. The project stays runnable without one, but production testing should use a locally stored model trained for driver drowsiness/distraction under real cabin lighting.
 
+The app's MediaPipe Tasks API may download the official Face Landmarker asset on its first run and cache it under the user's local application data directory. Subsequent runs use that local cached asset; the drowsiness classifier described below remains optional and separate.
+
 ## Run with a local ONNX model
 
 ```bash

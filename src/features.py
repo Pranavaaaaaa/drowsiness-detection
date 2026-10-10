@@ -19,6 +19,7 @@ from .constants import (
     RIGHT_EYE_OUTER,
     RIGHT_MOUTH,
 )
+from .drowsiness import SustainedEyeClosure
 from .utils import clamp, euclidean
 from .vision_quality import DEFAULT_FRAME_QUALITY
 
@@ -155,7 +156,13 @@ class FeatureExtractor:
     """feature extractor for all facial features"""
 
     # initialize thresholds and state for feature extraction
-    def __init__(self, ear_threshold=0.23, yawn_mar_threshold=0.4, yawn_frames_threshold=30):
+    def __init__(
+        self,
+        ear_threshold=0.23,
+        yawn_mar_threshold=0.4,
+        yawn_frames_threshold=30,
+        sustained_closure_seconds=1.5,
+    ):
         # compute eye aspect ratio to detect eye closure
         self.ear_threshold = ear_threshold
         self.yawn_mar_threshold = yawn_mar_threshold
@@ -163,9 +170,14 @@ class FeatureExtractor:
 
         # compute eye aspect ratio to detect eye closure
         self.ear_history = deque(maxlen=10)
+        self.left_ear_history = deque(maxlen=10)
+        self.right_ear_history = deque(maxlen=10)
         self.blink_timestamps = deque(maxlen=90)
         self.eye_closed = False
         self.closed_frames = 0
+        self.left_ear_threshold = ear_threshold
+        self.right_ear_threshold = ear_threshold
+        self.sustained_closure = SustainedEyeClosure(sustained_closure_seconds)
         self.mouth_open_frames = 0
         self.last_yawn_time = 0.0
         self.yawn_count = 0
@@ -186,6 +198,8 @@ class FeatureExtractor:
     def reset(self):
         """reset all states/counters for a new session"""
         self.ear_history.clear()
+        self.left_ear_history.clear()
+        self.right_ear_history.clear()
         self.blink_timestamps.clear()
         self.mar_history.clear()
         self.roll_history.clear()
@@ -194,11 +208,17 @@ class FeatureExtractor:
 
         self.eye_closed = False
         self.closed_frames = 0
+        self.sustained_closure.reset()
         self.mouth_open_frames = 0
         self.bad_pose_frames = 0
         self.look_away_frames = 0
         self.head_tilt_frames = 0
         self.head_back_frames = 0
+
+    def set_eye_thresholds(self, left_threshold, right_threshold):
+        """Set per-eye EAR thresholds calculated from the startup baseline."""
+        self.left_ear_threshold = float(left_threshold)
+        self.right_ear_threshold = float(right_threshold)
 
     # pylint: disable=too-many-locals
     def _visibility_features(self, landmarks, w, h, face_bbox):
@@ -253,18 +273,26 @@ class FeatureExtractor:
         mouth_visible = visibility["mouth_visible"] >= 0.5
 
         # current timestamp used for fps or timing logic
-        now = time.time()
+        now = time.monotonic()
 
         # compute eye aspect ratio only when eyes are visible enough to trust
         if eyes_visible:
             left_ear = eye_aspect_ratio(landmarks, LEFT_EYE, w, h)
             right_ear = eye_aspect_ratio(landmarks, RIGHT_EYE, w, h)
-            ear = (left_ear + right_ear) / 2.0
+            self.left_ear_history.append(left_ear)
+            self.right_ear_history.append(right_ear)
+            left_ear_smoothed = sum(self.left_ear_history) / len(self.left_ear_history)
+            right_ear_smoothed = sum(self.right_ear_history) / len(self.right_ear_history)
+            ear = (left_ear_smoothed + right_ear_smoothed) / 2.0
             self.last_ear = ear
             self.ear_history.append(ear)
             ear_smoothed = sum(self.ear_history) / len(self.ear_history)
 
-            if ear_smoothed < self.ear_threshold:
+            both_eyes_closed = (
+                left_ear_smoothed < self.left_ear_threshold
+                and right_ear_smoothed < self.right_ear_threshold
+            )
+            if both_eyes_closed:
                 if not self.eye_closed:
                     self.eye_closed = True
                 self.closed_frames += 1
@@ -275,8 +303,26 @@ class FeatureExtractor:
                 self.closed_frames = max(0, self.closed_frames - 2)
         else:
             ear_smoothed = self.last_ear
+            left_ear_smoothed = (
+                self.left_ear_history[-1]
+                if self.left_ear_history
+                else self.last_ear
+            )
+            right_ear_smoothed = (
+                self.right_ear_history[-1]
+                if self.right_ear_history
+                else self.last_ear
+            )
             self.eye_closed = False
             self.closed_frames = max(0, self.closed_frames - 3)
+            both_eyes_closed = False
+
+        frame_usable = frame_quality.usable
+        closed_eye_seconds = self.sustained_closure.update(
+            both_eyes_closed,
+            eyes_visible and frame_usable,
+            now=now,
+        )
 
         # remove old blink timestamps beyond 60 seconds to compute recent blink rate
         while self.blink_timestamps and now - self.blink_timestamps[0] > 60:
@@ -355,6 +401,12 @@ class FeatureExtractor:
 
         features = {
             "ear": float(ear_smoothed),
+            "left_ear": float(left_ear_smoothed),
+            "right_ear": float(right_ear_smoothed),
+            "left_ear_threshold": float(self.left_ear_threshold),
+            "right_ear_threshold": float(self.right_ear_threshold),
+            "eyes_closed": float(1.0 if both_eyes_closed else 0.0),
+            "closed_eye_seconds": float(closed_eye_seconds),
             "mar": float(mar_smoothed),
             "blink_rate": float(blink_rate),
             "closed_frames_norm": float(closed_frames_norm),

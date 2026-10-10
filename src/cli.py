@@ -30,6 +30,12 @@ def parse_args():
     parser.add_argument("--rebuild-baseline-on-start", action="store_true")
 
     parser.add_argument("--ear-threshold", type=float, default=0.23)
+    parser.add_argument(
+        "--sustained-closure-seconds",
+        type=float,
+        default=1.5,
+        help="continuous bilateral eye-closure duration required for a DROWSY state",
+    )
     parser.add_argument("--yawn-mar-threshold", type=float, default=0.45)
     parser.add_argument("--yawn-frames-threshold", type=int, default=12)
     parser.add_argument("--warning-threshold", type=float, default=0.42)

@@ -35,6 +35,7 @@ class AdaptiveScorer:
         no_face_hold_frames=20,
         low_quality_hold_frames=8,
         min_model_confidence=0.55,
+        sustained_closure_seconds=1.5,
     ):
         self.profile = profile
         self.calibration_seconds = calibration_seconds
@@ -44,6 +45,7 @@ class AdaptiveScorer:
         self.no_face_hold_frames = no_face_hold_frames
         self.low_quality_hold_frames = low_quality_hold_frames
         self.min_model_confidence = min_model_confidence
+        self.sustained_closure_seconds = float(sustained_closure_seconds)
 
         self.start_time = time.time()
 
@@ -53,6 +55,7 @@ class AdaptiveScorer:
 
         # clear history and seed with neutral values for a smooth start
         self.state = "CALIBRATING"
+        self.calibration_complete = False
         self.pending_state = None
         self.pending_frames = 0
         self.no_face_frames = 0
@@ -65,8 +68,11 @@ class AdaptiveScorer:
     def in_calibration(self):
         """determine if we're still in the initial calibration phase"""
         return (
-            self.seconds_since_start() < self.calibration_seconds
-            or self.profile.total_updates < 150
+            not self.calibration_complete
+            and (
+                self.seconds_since_start() < self.calibration_seconds
+                or self.profile.total_updates < 150
+            )
         )
 
     def _normalized_delta(self, value, mean, std, floor):
@@ -269,8 +275,17 @@ class AdaptiveScorer:
         }
 
         drowsy_score = clamp(sum(components.values()), 0.0, 1.0)
+        sustained_closure = (
+            eyes_visible
+            and features.get("frame_usable", 1.0) >= 0.5
+            and features.get("closed_eye_seconds", 0.0) >= self.sustained_closure_seconds
+        )
+        if sustained_closure:
+            drowsy_score = max(drowsy_score, self.drowsy_threshold)
         self.score_history.append(drowsy_score)
         smoothed_score = sum(self.score_history) / len(self.score_history)
+        if sustained_closure:
+            smoothed_score = max(smoothed_score, self.drowsy_threshold)
 
         # pylint: disable=chained-comparison
         stable_alert = (
@@ -289,7 +304,14 @@ class AdaptiveScorer:
         if (self.in_calibration() and stable_alert) or stable_alert:
             self.profile.update_from_alert_frame(features)
 
-        if self.in_calibration():
+        if sustained_closure:
+            self.calibration_complete = True
+            self.state = "DROWSY"
+            self.pending_state = None
+            self.pending_frames = 0
+            reason = "both eyes closed continuously"
+            confidence = 1.0
+        elif self.in_calibration():
             self.state = "CALIBRATING"
             confidence = clamp(
                 0.50 + 0.50 * (self.seconds_since_start() / max(self.calibration_seconds, 1)),

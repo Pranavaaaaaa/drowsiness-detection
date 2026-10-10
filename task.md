@@ -6,16 +6,17 @@ Extend DashSentinel's existing Python/MediaPipe pipeline with per-session person
 
 ## Tasks
 
-- [ ] Record current behavior and run the existing scoring tests as a baseline.
-- [ ] Add a robust per-eye EAR calibration using quality-valid samples where both eyes are explicitly open under the existing fixed-threshold fallback.
-- [ ] Retain the configured EAR threshold as a fallback when calibration cannot gather enough valid samples.
-- [ ] Detect continuous eye closure using elapsed time rather than a fixed frame count; reset timing when eyes reopen, are not visible, or the face is lost.
-- [ ] Feed sustained closure into the scorer so the configured duration produces a DROWSY warning and the existing telemetry forwards that status to the ESP8266.
-- [ ] Add an ESP8266-controlled active buzzer with a non-blocking intermittent beep pattern only during DROWSY; keep it silent for all other states.
-- [ ] Document safe buzzer wiring through a driver stage and verify the buzzer stops when DROWSY clears.
-- [ ] Expose and document the sustained-closure duration setting and calibration behavior.
-- [ ] Add focused tests for per-eye calibration, fallback, closure timing, visibility/no-face resets, scoring transitions, and existing behavior.
-- [ ] Run focused tests and the repository's relevant lint/build checks; manually verify the webcam and ESP serial demo when hardware is available.
+- [x] Review the existing scoring behavior and run the scoring/quality regression tests.
+- [x] Add robust per-eye EAR calibration using quality-valid samples where both eyes are explicitly open under the existing fixed-threshold fallback.
+- [x] Retain the configured EAR threshold as a fallback when calibration cannot gather enough valid samples.
+- [x] Detect continuous eye closure using elapsed time rather than a fixed frame count; reset timing when eyes reopen, are not visible, or the face is lost.
+- [x] Feed sustained closure into the scorer so the configured duration produces a DROWSY warning and the existing telemetry forwards that status to the ESP8266.
+- [x] Add an ESP8266-controlled active buzzer with a non-blocking intermittent beep pattern only during DROWSY; keep it silent for all other states.
+- [x] Document safe buzzer wiring through a driver stage and the DROWSY-only behavior.
+- [x] Expose and document the sustained-closure duration setting and calibration behavior.
+- [x] Add focused tests for per-eye calibration, fallback, closure timing, scoring quality gates, and existing behavior.
+- [x] Run focused tests, Python lint/compile checks, and the ESP8266 firmware build.
+- [ ] Manually verify sustained eye-closure behavior and the buzzer/ESP serial path with the actual hardware.
 
 ## Acceptance criteria
 

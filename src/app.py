@@ -11,10 +11,11 @@ import time
 from collections import deque
 
 import cv2
-import mediapipe as mp
 
 from .constants import LEFT_EYE, MOUTH_BOTTOM, MOUTH_TOP, NOSE_TIP, RIGHT_EYE
+from .drowsiness import calibrated_eye_thresholds
 from .face_selection import choose_driver_face, crop_bbox, expand_bbox
+from .face_mesh import FaceMeshAdapter
 from .features import FeatureExtractor, enhance_lighting
 from .local_model import LocalDMSModel
 from .logging_utils import EventLogger
@@ -44,6 +45,7 @@ class DashSentinelApp:
             ear_threshold=args.ear_threshold,
             yawn_mar_threshold=args.yawn_mar_threshold,
             yawn_frames_threshold=args.yawn_frames_threshold,
+            sustained_closure_seconds=args.sustained_closure_seconds,
         )
 
         # setup scoring system with adaptive thresholds
@@ -57,6 +59,7 @@ class DashSentinelApp:
             no_face_hold_frames=args.no_face_hold_frames,
             low_quality_hold_frames=args.low_quality_hold_frames,
             min_model_confidence=args.min_model_confidence,
+            sustained_closure_seconds=args.sustained_closure_seconds,
         )
 
 
@@ -93,6 +96,8 @@ class DashSentinelApp:
         self.fps_history = deque(maxlen=60)
         self.last_frame_time = time.time()
         self.baseline_frames_collected = 0
+        self.eye_calibration_samples = []
+        self.eye_calibration_succeeded = False
         self.baseline_started_at = None
 
         # setup signal handlers for graceful shutdown in terminal
@@ -112,6 +117,14 @@ class DashSentinelApp:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.args.height)
         cap.set(cv2.CAP_PROP_FPS, self.args.camera_fps)
         return cap
+
+    def _create_display_window(self):
+        """Create a resizable UI window that preserves the video aspect ratio."""
+        if self.args.show_ui and not self.args.headless:
+            cv2.namedWindow(
+                self.args.window_name,
+                cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO,
+            )
 
     # helper method to update FPS calculation based on frame processing time
     def _update_fps(self):
@@ -206,6 +219,18 @@ class DashSentinelApp:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.54,
                 (255, 255, 255),
+                2,
+            )
+            cv2.putText(
+                frame,
+                (
+                    f"eyes closed: {features.get('closed_eye_seconds', 0.0):.2f}/"
+                    f"{self.args.sustained_closure_seconds:.1f}s"
+                ),
+                (18, 356),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.50,
+                (220, 220, 220),
                 2,
             )
             cv2.putText(
@@ -385,8 +410,11 @@ class DashSentinelApp:
         return (
             features.get("frame_usable", 1.0) >= 0.5
             and features.get("eyes_visible", 1.0) >= 0.5
+            and features.get("closed_eye_seconds", 0.0) < self.args.sustained_closure_seconds
             and features.get("mouth_visible", 1.0) >= 0.5
             and features.get("visibility_score", 1.0) >= 0.70
+            and features.get("left_ear", 0.0) > self.args.ear_threshold
+            and features.get("right_ear", 0.0) > self.args.ear_threshold
             and features["closed_frames_norm"] < 0.15
             and features["yawn_flag"] < 0.5
             and features["posture_flag"] < 0.5
@@ -401,10 +429,12 @@ class DashSentinelApp:
         return enough_time and enough_frames
 
     # run initial baseline collection to build the profile, then process the frames to update scores
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     def _run_startup_baseline(self, cap, face_mesh):
         self.extractor.reset()  # reset to clear any existing states
         self.baseline_frames_collected = 0
+        self.eye_calibration_samples = []
+        self.eye_calibration_succeeded = False
         self.baseline_started_at = time.time()
 
         while self.running:
@@ -456,6 +486,9 @@ class DashSentinelApp:
                     )
                     if self._feature_is_valid_for_baseline(features):
                         self.profile.update_from_alert_frame(features)
+                        self.eye_calibration_samples.append(
+                            (features["left_ear"], features["right_ear"])
+                        )
                         self.baseline_frames_collected += 1
 
             # show overlay with progress during baseline phase, or print to console
@@ -484,20 +517,35 @@ class DashSentinelApp:
         if not self.args.show_ui or self.args.headless:
             print()
 
-        # reset extractor to start fresh for active phase
+        thresholds, self.eye_calibration_succeeded = calibrated_eye_thresholds(
+            self.eye_calibration_samples,
+            self.args.ear_threshold,
+        )
+        self.extractor.set_eye_thresholds(*thresholds)
+        if self.eye_calibration_succeeded:
+            print(
+                "[calibration] personalized EAR thresholds: "
+                f"left={thresholds[0]:.3f}, right={thresholds[1]:.3f}"
+            )
+        else:
+            print(
+                "[calibration] not enough valid open-eye samples; "
+                f"using fixed EAR threshold {self.args.ear_threshold:.3f}"
+            )
+
+        # reset extractor state without discarding calibrated thresholds
         self.extractor.reset()
 
-    # pylint: disable=too-many-locals,too-many-branches,too-many-statements,too-many-nested-blocks
-    def run(self):
+    # pylint: disable=too-many-locals,too-many-branches,too-many-statements,too-many-nested-blocks,too-many-positional-arguments
+    def run(self):  # pylint: disable=too-many-branches,too-many-statements
         """main loop to process video frames, extract features, 
         compute scores, log events, and handle telemetry"""
         cap = self._open_camera()
-        mp_face_mesh = mp.solutions.face_mesh
         frame_count = 0
 
         try:
-            # create the facemesh object
-            with mp_face_mesh.FaceMesh(
+            self._create_display_window()
+            with FaceMeshAdapter(
                 max_num_faces=max(1, self.args.max_faces),
                 refine_landmarks=self.args.refine_landmarks,
                 min_detection_confidence=self.args.min_detection_confidence,
