@@ -2,18 +2,7 @@
 
 **Real-time driver drowsiness / distraction warning prototype with an embedded feedback interface**
 
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="media/ui-screenshots/alert.png" width="380"><br>
-      <b>Left:</b> real-time facial tracking and attentiveness scoring
-    </td>
-    <td align="center">
-      <img src="media/breadboard-photos/breadboard-alert.jpeg" width="360"><br>
-      <b>Right:</b> ESP8266 hardware interface
-    </td>
-  </tr>
-</table>
+
 
 ## Overview
 
