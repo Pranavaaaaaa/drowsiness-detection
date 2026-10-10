@@ -8,7 +8,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-# kicad temporary files
+# kicad temporary files  
+
 *.kicad_sch-bak
 *.kicad_pcb-bak
 *.bak
